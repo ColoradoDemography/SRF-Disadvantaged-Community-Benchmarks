@@ -1,0 +1,29 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1484175909538.000,
+    "dirty" : false,
+    "encoding" : "",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "8C97E484",
+    "lastKnownWriteTime" : 2318273207950518371,
+    "last_content_update" : 1484175909538,
+    "path" : null,
+    "project_path" : null,
+    "properties" : {
+        "cacheKey" : "E3B7CF43",
+        "caption" : "s4debt_2and3",
+        "contentUrl" : "grid_resource/gridviewer.html?env=&obj=s4debt_2and3&cache_key=E3B7CF43",
+        "displayedObservations" : 329,
+        "environment" : "",
+        "object" : "s4debt_2and3",
+        "preview" : 0,
+        "totalObservations" : 329,
+        "variables" : 4
+    },
+    "relative_order" : 6,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_dataframe"
+}

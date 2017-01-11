@@ -1,8 +1,8 @@
 library(RODBC)
 library(tidyverse)
 library(codemogAPI)
+library(codemog)
 source("J:/Estimates/ConstructionData/LocalUpdateData/v2015ResidentialConstructionSurvey/v2015MasterUpdates/pw.r") # creates a connection to Oracle using a document not under version control
-
 #### Input Tables ####
 
 # OIS.PLACE provides a LGID to PLACEFIPS crosswalk
@@ -19,6 +19,10 @@ munis=as.numeric(c("760", "925", "1090", "1530", "2355", "3235", "3455", "3620",
 housingunits=muni_est(munis, 2010:2015, vars=c("totalhousingunits", "totalpopulation"))%>%
   select(-totalpopulation)%>%
   inner_join(oisplace, by= c("placefips"="PLACE"))
+carbonate=data.frame(municipality="Carbonate", year=c(2010:2015), placefips=NA,totalhousingunits="0",
+                     FIPS_CLASS_CODE=NA, PLACECE=NA, LG_ID=66636, DOR_CODE=NA, CREATED_ON=NA,
+                     CREATED_BY=NA, UPDATED_ON=NA, UPDATED_BY=NA, FEATURE_ID=NA)
+housingunits=bind_rows(housingunits, carbonate)
 
 # DLG.CM_AUDIT
 cm_audit=sqlFetch(dolaprod, "DLG.CM_AUDIT")
@@ -28,5 +32,103 @@ cm_fund=sqlFetch(dolaprod, "DLG.CM_FUND")
 
 #### S3 Assessed Value / Household ####
 
+av=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(select(lim_levy, -CREATED_BY:-UPDATED_BY), by="LG_ID")%>%
+  filter(SUBDIST_NUM==1 | SUBDIST_NUM==2, LGTYPE_ID%in%c(2,3,4,5, 61, 70), BUDGET_YEAR>=2012 & BUDGET_YEAR<=2016)%>%
+  select(LG_ID, NAME, BUDGET_YEAR, ASSESSED_VALUE)%>%
+  group_by(LG_ID,NAME)%>%
+  summarize(ASSESSED_VALUE=mean(ASSESSED_VALUE))
 
+hu3=housingunits%>%
+  filter(year>2010)%>%
+  select(LG_ID, year, totalhousingunits)%>%
+  group_by(LG_ID)%>%
+  summarize(housingunits=mean(as.numeric(totalhousingunits)))
+
+#Generates Full Dataset
+
+s3_data=inner_join(av, hu3, by="LG_ID")%>%
+  mutate(s3metric=ASSESSED_VALUE/housingunits)
+
+#Generates Benchmark
+
+s3_benchmark=median(s3_data$s3metric)
+
+#### S4 Current and Projected System Debt/Tap/MHV
+## Need to redo this to be run for S+W S and W.
+## Need to sum S and W for those with separate before creating W+s Median
+## Could do this by spreading the values and using LG-ID as the key
+## Separate MEdians for all sets
+
+s4debt_1=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(select(cm_audit, -UPDATED_ON:-UPDATED_BY), by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, GO_DEBT,REVENUE_DEBT,OTHER_DEBT)%>%
+  mutate(debt=GO_DEBT+REVENUE_DEBT+OTHER_DEBT)%>%
+  group_by(LG_ID, NAME, AUDIT_YEAR)%>%
+  summarize(debt=sum(debt))%>%
+  ungroup()%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(debt=mean(debt))
+
+s4debt_2and3=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(select(cm_audit, -UPDATED_ON:-UPDATED_BY), by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, GO_DEBT,REVENUE_DEBT,OTHER_DEBT)%>%
+  mutate(debt=GO_DEBT+REVENUE_DEBT+OTHER_DEBT)%>%
+  group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
+  summarize(debt=sum(debt))
+  
+  select(LG_ID, NAME, debt)
+## WHY AM I GETTING ONLY 235
+##LIST OF PLACE NOT IN THERE
+y=anti_join(s3_data, s4debt, by="LG_ID")
+
+hu4=housingunits%>%
+  filter(year>=2010, year<=2014)%>%
+  select(LG_ID, year, totalhousingunits)%>%
+  group_by(LG_ID)%>%
+  summarize(housingunits=mean(as.numeric(totalhousingunits)))
+
+mhv4=codemog_api(data="b25077", db="acs1115", sumlev = "160", geography = "sumlev")%>%
+  mutate(place=as.numeric(place), 
+         mhv=as.numeric(b25077001))%>%
+  left_join(oisplace, c("place"= "PLACE"))
+
+s4_data=hu4%>%
+  inner_join(mhv4, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s4debt, by="LG_ID")%>%
+  mutate(s4metric=debt/housingunits/mhv,
+         s4metric=ifelse(is.na(s4metric), 0,s4metric))
+
+s4_benchmark=median(s4_data$s4metric)
+
+
+#### S5a System Full-Cost/Tap/MHI ####
+
+s5cost=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(select(cm_audit, -UPDATED_ON:-UPDATED_BY), by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  mutate(cost=EXP_OPERATING+EXP_TRANSFER_OUT+DEPRECIATION)%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(cost=mean(cost))%>%
+  select(LG_ID, NAME, cost)
+## WHY AM I GETTING ONLY 235
+##LIST OF PLACE NOT IN THERE
+y5=anti_join(s3_data, s5debt, by="LG_ID")
+
+
+hu5a=housingunits%>%
+  filter(year>=2010, year<=2014)%>%
+  select(LG_ID, year, totalhousingunits)%>%
+  group_by(LG_ID)%>%
+  summarize(housingunits=mean(as.numeric(totalhousingunits)))
 
