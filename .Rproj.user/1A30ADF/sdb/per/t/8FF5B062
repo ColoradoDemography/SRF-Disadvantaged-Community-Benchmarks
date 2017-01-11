@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "\nlibrary(lubridate)\nlibrary(readxl) \nlibrary(tidyr)\nlibrary(RODBC)\nlibrary(dplyr)\n\nsource(\"J:/Estimates/ConstructionData/LocalUpdateData/v2015ResidentialConstructionSurvey/v2015MasterUpdates/pw.r\") # creates a connection to Oracle using a document not under version control\n\n## Survey Submission Pull from Oracle with ID information on them for joins\nsurvey=sqlFetch(dolaprod, \"DEMOG_RCS.RESID_SURVEY\")%>%\n  select(-c(CREATED_ON, CREATED_BY, UPDATED_ON, UPDATED_BY))%>%\n  filter(DATE_COMPLETED >  as.POSIXlt(\"2015-12-01\"),DATE_COMPLETED <  as.POSIXlt(\"2016-04-19\"))\n\n\n## Pulling in Permits, COs, Demos and Mobile objects to work with as comparisons, left in other scripts to read more cleanly\nsource(\"BP_script.r\")\nsource(\"CO_script.r\")\nsource(\"Demo_script.r\")\nsource(\"Mobile_script.r\")\nsource(\"Submission_List.r\")\n\n\n## Building Permit Comparisons\n\ncompare_bp=perm_compare%>%\n  filter(yr<=2015)%>%\n  mutate(difference=rcs-as.numeric(master),\n         id=paste0(county, place))%>%\n  arrange(id, yr)\n\n## Certificate of Occupancy Comparisons\n\ncompare_co=certs_compare%>%\n  filter(yr<=2015)%>%\n  mutate(difference=rcs-as.numeric(master),\n         id=paste0(county, place))%>%\n  arrange(id, yr)\n\n## Demolition Permit/Loss Comparisons\n\ncompare_demo=demo_compare%>%\n  filter(yr<=2015)%>%\n  mutate(difference=rcs-as.numeric(master),\n         id=paste0(county, place))%>%\n  arrange(id, yr)\n\n## Mobile Home Comparisons\n\ncompare_mobile=mobile_compare%>%\n  filter(yr<=2015)%>%\n  mutate(difference=rcs-as.numeric(master),\n         id=paste0(county, place))%>%\n  arrange(id, yr)\n\n\nodbcCloseAll()\n\ndetach(package:RODBC)\ndetach(package:lubridate)\ndetach(package:readxl)\ndetach(package:rJava)\n\n### Comparison File Writes\nrobR::save.xlsx(\"comparison_tool.xlsx\", compare_bp, compare_co, compare_demo, compare_mobile)\n\n\n\n\n### Census File Writes\n\nxlsx::write.xlsx(perm_census,\"Census_HUR/Input/state_hu_data.xlsx\", sheet = \"building_permits\", row.names = FALSE)\nxlsx::write.xlsx(certs_census,\"Census_HUR/Input/state_hu_data.xlsx\", sheet = \"cert_occupancy\", row.names = FALSE, append = TRUE)\nxlsx::write.xlsx(demo_census,\"Census_HUR/Input/state_hu_data.xlsx\", sheet = \"demo_permits\", row.names = FALSE, append = TRUE)\nxlsx::write.xlsx(mobile_census,\"Census_HUR/Input/state_hu_data.xlsx\", sheet = \"mobile_homes\", row.names = FALSE, append = TRUE)\n\n",
+    "created" : 1484076818822.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2171323799",
+    "id" : "8FF5B062",
+    "lastKnownWriteTime" : 1462809579,
+    "last_content_update" : 1462809579,
+    "path" : "J:/Estimates/ConstructionData/LocalUpdateData/v2015ResidentialConstructionSurvey/SubmissionReview/Comparison_script.R",
+    "project_path" : null,
+    "properties" : {
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
