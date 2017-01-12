@@ -25,7 +25,8 @@ carbonate=data.frame(municipality="Carbonate", year=c(2010:2015), placefips=NA,t
 housingunits=bind_rows(housingunits, carbonate)
 
 # DLG.CM_AUDIT
-cm_audit=sqlFetch(dolaprod, "DLG.CM_AUDIT")
+cm_audit=sqlFetch(dolaprod, "DLG.CM_AUDIT")%>%
+  select(LG_ID, CM_AUDIT_ID, AUDIT_YEAR)
 
 # DLG.CM_FUND
 cm_fund=sqlFetch(dolaprod, "DLG.CM_FUND")
@@ -53,7 +54,7 @@ s3_data=inner_join(av, hu3, by="LG_ID")%>%
 
 #Generates Benchmark
 
-s3_benchmark=median(s3_data$s3metric)
+s3_benchmark=data.frame(s3_benchmark=median(s3_data$s3metric))
 
 #### S4 Current and Projected System Debt/Tap/MHV
 ## Need to redo this to be run for S+W S and W.
@@ -61,7 +62,7 @@ s3_benchmark=median(s3_data$s3metric)
 ## Could do this by spreading the values and using LG-ID as the key
 ## Separate MEdians for all sets
 
-s4debt_1=lgbasic%>%
+s4debt_ws=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(select(cm_audit, -UPDATED_ON:-UPDATED_BY), by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
@@ -74,7 +75,7 @@ s4debt_1=lgbasic%>%
   group_by(LG_ID, NAME)%>%
   summarize(debt=mean(debt))
 
-s4debt_2and3=lgbasic%>%
+s4debt_sep=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(select(cm_audit, -UPDATED_ON:-UPDATED_BY), by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
@@ -82,12 +83,12 @@ s4debt_2and3=lgbasic%>%
   select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, GO_DEBT,REVENUE_DEBT,OTHER_DEBT)%>%
   mutate(debt=GO_DEBT+REVENUE_DEBT+OTHER_DEBT)%>%
   group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
-  summarize(debt=sum(debt))
-  
-  select(LG_ID, NAME, debt)
-## WHY AM I GETTING ONLY 235
+  summarize(debt=sum(debt))%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, debt)
+
+## WHY AM I GETTING ONLY 234 - There are some without either
 ##LIST OF PLACE NOT IN THERE
-y=anti_join(s3_data, s4debt, by="LG_ID")
+# y=anti_join(s3_data, s4debt, by="LG_ID")
 
 hu4=housingunits%>%
   filter(year>=2010, year<=2014)%>%
@@ -100,35 +101,121 @@ mhv4=codemog_api(data="b25077", db="acs1115", sumlev = "160", geography = "sumle
          mhv=as.numeric(b25077001))%>%
   left_join(oisplace, c("place"= "PLACE"))
 
-s4_data=hu4%>%
+s4_data_ws=hu4%>%
   inner_join(mhv4, by="LG_ID")%>%
   filter(!is.na(LG_ID))%>%
-  inner_join(s4debt, by="LG_ID")%>%
+  inner_join(s4debt_ws, by="LG_ID")%>%
   mutate(s4metric=debt/housingunits/mhv,
          s4metric=ifelse(is.na(s4metric), 0,s4metric))
 
-s4_benchmark=median(s4_data$s4metric)
+s4_data_sep=hu4%>%
+  inner_join(mhv4, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s4debt_sep, by="LG_ID")%>%
+  mutate(s4metric=debt/housingunits/mhv,
+         s4metric=ifelse(is.na(s4metric), 0,s4metric))
+
+s4_benchmark_ws=data.frame(s4_benchmark_ws=median(s4_data_ws$s4metric))
+s4_benchmark_sep=s4_data_sep%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", "s"),
+         name=paste0("s4_benchmark_", fundID))%>%
+  group_by(name)%>%
+  summarize(s4_benchmark_sep=median(s4metric))%>%
+  spread(name, s4_benchmark_sep)
 
 
 #### S5a System Full-Cost/Tap/MHI ####
 
-s5cost=lgbasic%>%
+s5acost_ws=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
-  inner_join(select(cm_audit, -UPDATED_ON:-UPDATED_BY), by="LG_ID")%>%
+  inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
   filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   mutate(cost=EXP_OPERATING+EXP_TRANSFER_OUT+DEPRECIATION)%>%
-  group_by(LG_ID, NAME)%>%
+  group_by(LG_ID, NAME, AUDIT_YEAR)%>%
   summarize(cost=mean(cost))%>%
-  select(LG_ID, NAME, cost)
-## WHY AM I GETTING ONLY 235
-##LIST OF PLACE NOT IN THERE
-y5=anti_join(s3_data, s5debt, by="LG_ID")
+  ungroup()%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(cost=mean(cost))
+
+s5acost_sep=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(cm_audit, by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,DEPRECIATION)%>%
+  mutate(cost=EXP_OPERATING+EXP_TRANSFER_OUT+DEPRECIATION)%>%
+  group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
+  summarize(cost=sum(cost))%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, cost)
 
 
-hu5a=housingunits%>%
+hu5=housingunits%>%
   filter(year>=2010, year<=2014)%>%
   select(LG_ID, year, totalhousingunits)%>%
   group_by(LG_ID)%>%
   summarize(housingunits=mean(as.numeric(totalhousingunits)))
+
+mhi5=codemog_api(data="b19013", db="acs1115", sumlev = "160", geography = "sumlev")%>%
+  mutate(place=as.numeric(place), 
+         mhi=as.numeric(b19013001))%>%
+  left_join(oisplace, c("place"= "PLACE"))%>%
+  filter(!is.na(LG_ID))
+
+s5a_data_ws=hu5%>%
+  inner_join(mhi5, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s5acost_ws, by="LG_ID")%>%
+  mutate(s5metric=cost/housingunits/mhi,
+         s5metric=ifelse(is.na(s5metric), 0,s5metric))
+
+s5a_data_sep=hu5%>%
+  inner_join(mhi5, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s5acost_sep, by="LG_ID")%>%
+  mutate(s5metric=cost/housingunits/mhi,
+         s5metric=ifelse(is.na(s5metric), 0,s5metric))
+
+s5a_benchmark_ws=data.frame(s5a_benchmark_ws=median(s5a_data_ws$s5metric))
+s5a_benchmark_sep=s5a_data_sep%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", "s"),
+    name=paste0("s5a_benchmark_", fundID))%>%
+  group_by(name)%>%
+  summarize(s5a_benchmark_sep=median(s5metric))%>%
+  spread(name, s5a_benchmark_sep)
+
+
+#### S5b System Required Revenue/Tap/MHI (@110% Coverage) ####
+
+s5brev_sep=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(cm_audit, by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  
+
+
+s5b_data_ws=hu5%>%
+  inner_join(mhi5, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s5brev_ws, by="LG_ID")%>%
+  mutate(s5metric=cost/housingunits/mhi,
+         s5metric=ifelse(is.na(s5metric), 0,s5metric))
+
+s5b_data_sep=hu5%>%
+  inner_join(mhi5, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s5brev_sep, by="LG_ID")%>%
+  mutate(s5metric=cost/housingunits/mhi,
+         s5metric=ifelse(is.na(s5metric), 0,s5metric))
+
+s5b_benchmark_ws=data.frame(s5b_benchmark_ws=median(s5b_data_ws$s5metric))
+s5b_benchmark_sep=s5b_data_sep%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", "s"),
+         name=paste0("s5b_benchmark_", fundID))%>%
+  group_by(name)%>%
+  summarize(s5b_benchmark_sep=median(s5metric))%>%
+  spread(name, s5b_benchmark_sep)
+
+
 
