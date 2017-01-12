@@ -189,26 +189,42 @@ s5a_benchmark_sep=s5a_data_sep%>%
 
 #### S5b System Required Revenue/Tap/MHI (@110% Coverage) ####
 
+s5brev_ws=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(cm_audit, by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,EXP_PRINCIPAL, EXP_INTEREST)%>%
+  mutate(rev=(1.1*(EXP_PRINCIPAL+EXP_INTEREST))+(EXP_OPERATING+EXP_TRANSFER_OUT))%>%
+  group_by(LG_ID, NAME, AUDIT_YEAR)%>%
+  summarize(rev=mean(rev))%>%
+  ungroup()%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(rev=mean(rev))
+
 s5brev_sep=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
   filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5), LG_ID!=16002, LG_ID!=64030, AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
-  
-
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,EXP_PRINCIPAL, EXP_INTEREST)%>%
+  mutate(rev=(1.1*(EXP_PRINCIPAL+EXP_INTEREST))+(EXP_OPERATING+EXP_TRANSFER_OUT))%>%
+  group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
+  summarize(rev=sum(rev))%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, rev)
 
 s5b_data_ws=hu5%>%
   inner_join(mhi5, by="LG_ID")%>%
   filter(!is.na(LG_ID))%>%
   inner_join(s5brev_ws, by="LG_ID")%>%
-  mutate(s5metric=cost/housingunits/mhi,
+  mutate(s5metric=rev/housingunits/mhi,
          s5metric=ifelse(is.na(s5metric), 0,s5metric))
 
 s5b_data_sep=hu5%>%
   inner_join(mhi5, by="LG_ID")%>%
   filter(!is.na(LG_ID))%>%
   inner_join(s5brev_sep, by="LG_ID")%>%
-  mutate(s5metric=cost/housingunits/mhi,
+  mutate(s5metric=rev/housingunits/mhi,
          s5metric=ifelse(is.na(s5metric), 0,s5metric))
 
 s5b_benchmark_ws=data.frame(s5b_benchmark_ws=median(s5b_data_ws$s5metric))
@@ -222,12 +238,11 @@ s5b_benchmark_sep=s5b_data_sep%>%
 
 ##### Output #####
 
-benchmarks=bind_cols(s3_benchmark, s4_benchmark_ws, s4_benchmark_sep, s5a_benchmark_ws, s5a_benchmark_sep)
+benchmarks=bind_cols(s3_benchmark, s4_benchmark_ws, s4_benchmark_sep, s5a_benchmark_ws, s5a_benchmark_sep, s5b_benchmark_ws, s5b_benchmark_sep)
 
 write.csv(benchmarks, "benchmarks_2017.csv")
 
-for (i in c( "s3_data", "s4_data_ws", "s4_data_sep", "s5a_data_ws", "s5a_data_sep")){
+for (i in c( "s3_data", "s4_data_ws", "s4_data_sep", "s5a_data_ws", "s5a_data_sep", "s5b_data_ws", "s5b_data_sep")){
   obj=get(i)
   write.csv(x, paste0(i, ".csv"))
 }
-save.xlsx("benchmark_file.xlsx", benchmarks, s3_data, s4_data_ws, s4_data_sep, s5a_data_ws, s5a_data_sep)
