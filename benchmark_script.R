@@ -2,6 +2,8 @@ library(RODBC)
 library(tidyverse)
 library(codemogAPI)
 library(codemog)
+library(robR)
+
 source("J:/Estimates/ConstructionData/LocalUpdateData/v2015ResidentialConstructionSurvey/v2015MasterUpdates/pw.r") # creates a connection to Oracle using a document not under version control
 #### Input Tables ####
 
@@ -218,4 +220,14 @@ s5b_benchmark_sep=s5b_data_sep%>%
   spread(name, s5b_benchmark_sep)
 
 
+##### Output #####
 
+benchmarks=bind_cols(s3_benchmark, s4_benchmark_ws, s4_benchmark_sep, s5a_benchmark_ws, s5a_benchmark_sep)
+
+write.csv(benchmarks, "benchmarks_2017.csv")
+
+for (i in c( "s3_data", "s4_data_ws", "s4_data_sep", "s5a_data_ws", "s5a_data_sep")){
+  obj=get(i)
+  write.csv(x, paste0(i, ".csv"))
+}
+save.xlsx("benchmark_file.xlsx", benchmarks, s3_data, s4_data_ws, s4_data_sep, s5a_data_ws, s5a_data_sep)

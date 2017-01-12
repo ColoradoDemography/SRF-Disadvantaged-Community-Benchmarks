@@ -1,0 +1,21 @@
+{
+    "collab_server" : "",
+    "contents" : "### Run this first to get proper packages ####\n\ninstall.packages(c(\"tidyverse\", \"RODBC\", \"devtools\", \"xlsx\"))\n\ndevtools::install_github(\"coloradodemography/codemogAPI\")\ndevtools::install_github(\"robkemp/codemogProfile\")\ndevtools::install_github(\"robkemp/codemog\")\ndevtools::install_github(\"robkemp/robR\")",
+    "created" : 1484237619683.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "4093679136",
+    "id" : "1DF0A897",
+    "lastKnownWriteTime" : 1484238461,
+    "last_content_update" : 1484238461816,
+    "path" : "C:/Users/rjame/OneDrive/Documents/Demography Office/SRF-Disadvantaged-Community-Benchmarks/setup_script.R",
+    "project_path" : "setup_script.R",
+    "properties" : {
+        "tempName" : "Untitled1"
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
