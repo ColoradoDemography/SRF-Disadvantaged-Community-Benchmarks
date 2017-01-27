@@ -35,17 +35,17 @@ cm_fund=sqlFetch(dolaprod, "DLG.CM_FUND")
 
 # Fund Type Index
 fti=lgbasic%>%
-  select(-CREATED_BY:-OSA)%>%
-  inner_join(cm_audit, by="LG_ID")%>%
-  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
-  select(LG_ID,NAME, AUDIT_YEAR, CM_FUND_TYPE_ID)%>%
+  select(-CREATED_BY:-OSA)%>% ## Gets rid of some columns we don't need
+  inner_join(cm_audit, by="LG_ID")%>% ## joins lgbasic to cm_audit using LG_ID
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>% ## joins cm_fund using CM_AUDIT_ID after removing some columns we don't need
+  filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>% ##  Filters to fund type, lgtype_id and audit years within the range
+  select(LG_ID,NAME, AUDIT_YEAR, CM_FUND_TYPE_ID)%>% ## takes only these columns into the next step
   mutate(type=ifelse(CM_FUND_TYPE_ID==1, "combined", 
-                     ifelse(CM_FUND_TYPE_ID==2, "water_only", "sewer_only")))%>%
-  spread(type,CM_FUND_TYPE_ID)%>%
-  mutate(sum=ifelse(is.na(combined), water_only+sewer_only, combined),
-         ws_include=ifelse(is.na(sum), 0, 1))%>%
-  select(LG_ID, ws_include)
+                     ifelse(CM_FUND_TYPE_ID==2, "water_only", "sewer_only")))%>% ## Creates english interpretations
+  spread(type,CM_FUND_TYPE_ID)%>% ## takes teh data from long to wide using those english explanations as columns and the fund type as the value
+  mutate(sum=ifelse(is.na(combined), water_only+sewer_only, combined), ## Adds the columns together to make an indicator
+         ws_include=ifelse(is.na(sum), 0, 1))%>% ## uses results of sum to create the final inclusion indicator for combined or water and swer systems
+  select(LG_ID, AUDIT_YEAR, sum, ws_include) ## selects only the columns we need to merge and use the indicator for the benchmarks
          
 
 #### S3 Assessed Value / Household ####
@@ -73,17 +73,39 @@ s3_data=inner_join(av, hu3, by="LG_ID")%>%
 #Generates Benchmark
 
 s3_benchmark=data.frame(s3_benchmark=median(s3_data$s3metric))
+s3_summary=s3_data%>%
+  mutate(measure="s3")%>%
+  group_by(measure)%>%
+  summarise(count=n(),
+            min=min(s3metric, na.rm=TRUE),
+            '1st Q'=quantile(s3metric, probs=0.25, na.rm=TRUE),
+            median=median(s3metric, na.rm=TRUE),
+            '3rd Q'=quantile(s3metric, probs=0.75, na.rm=TRUE),
+            max=max(.$s3metric[.$housingunits!=0], na.rm=TRUE))%>%
+  select(measure, benchmark=median, count, min:max)
 
 #### S4 Current and Projected System Debt/Tap/MHV
-
-
 
 s4debt_ws=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  inner_join(fti, by="LG_ID")%>%
+  inner_join(fti, by=c("LG_ID", "AUDIT_YEAR"))%>%
   filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014, ws_include==1)%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, GO_DEBT,REVENUE_DEBT,OTHER_DEBT)%>%
+  mutate(debt=GO_DEBT+REVENUE_DEBT+OTHER_DEBT)%>%
+  group_by(LG_ID, NAME, AUDIT_YEAR)%>%
+  summarize(debt=sum(debt))%>%
+  ungroup()%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(debt=mean(debt))
+
+s4debt_ws_sum=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(cm_audit, by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  inner_join(fti, by=c("LG_ID", "AUDIT_YEAR"))%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, GO_DEBT,REVENUE_DEBT,OTHER_DEBT)%>%
   mutate(debt=GO_DEBT+REVENUE_DEBT+OTHER_DEBT)%>%
   group_by(LG_ID, NAME, AUDIT_YEAR)%>%
@@ -96,7 +118,7 @@ s4debt_sep=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5, 61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  filter(CM_FUND_TYPE_ID%in%c(1, 2,3), LGTYPE_ID%in%c(2,3,4,5, 61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, GO_DEBT,REVENUE_DEBT,OTHER_DEBT)%>%
   mutate(debt=GO_DEBT+REVENUE_DEBT+OTHER_DEBT)%>%
   group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
@@ -125,6 +147,12 @@ s4_data_ws=hu4%>%
   mutate(s4metric=debt/housingunits/mhv)
          # s4metric=ifelse(is.na(s4metric), 0,s4metric))
 
+s4_data_ws_sum=hu4%>%
+  inner_join(mhv4, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s4debt_ws_sum, by="LG_ID")%>%
+  mutate(s4metric=debt/housingunits/mhv)
+
 s4_data_sep=hu4%>%
   inner_join(mhv4, by="LG_ID")%>%
   filter(!is.na(LG_ID))%>%
@@ -133,13 +161,60 @@ s4_data_sep=hu4%>%
          # s4metric=ifelse(is.na(s4metric), 0,s4metric))
 
 s4_benchmark_ws=data.frame(s4_benchmark_ws=median(s4_data_ws$s4metric, na.rm = TRUE))
+s4_benchmark_ws_sum=data.frame(s4_benchmark_ws_sum=median(s4_data_ws_sum$s4metric, na.rm = TRUE))
 s4_benchmark_sep=s4_data_sep%>%
-  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", "s"),
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", 
+                       ifelse(CM_FUND_TYPE_ID==1, "joint", "s")),
          name=paste0("s4_benchmark_", fundID))%>%
   group_by(name)%>%
   summarize(s4_benchmark_sep=median(s4metric, na.rm=TRUE))%>%
   spread(name, s4_benchmark_sep)
 
+s4_summary_sep= s4_data_sep%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", 
+                       ifelse(CM_FUND_TYPE_ID==1, "joint", "s")))%>%
+  group_by(fundID)%>%
+  select(fundID, s4metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s4_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+s4_summary_ws= s4_data_ws%>%
+  mutate(fundID="ws")%>%
+  group_by(fundID)%>%
+  select(fundID, s4metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s4_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+s4_summary_sum= s4_data_ws_sum%>%
+  mutate(fundID="w+s")%>%
+  group_by(fundID)%>%
+  select(fundID, s4metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s4_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+
+s4_summary=bind_rows(s4_summary_sep, s4_summary_sum, s4_summary_ws)
 
 #### S5a System Full-Cost/Tap/MHI ####
 
@@ -147,8 +222,21 @@ s5acost_ws=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  inner_join(fti, by="LG_ID")%>%
+  inner_join(fti, by=c("LG_ID", "AUDIT_YEAR"))%>%
   filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014, ws_include==1)%>%
+  mutate(cost=EXP_OPERATING+EXP_TRANSFER_OUT+DEPRECIATION)%>%
+  group_by(LG_ID, NAME, AUDIT_YEAR)%>%
+  summarize(cost=sum(cost))%>%
+  ungroup()%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(cost=mean(cost))
+
+s5acost_ws_sum=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(cm_audit, by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  inner_join(fti, by=c("LG_ID", "AUDIT_YEAR"))%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   mutate(cost=EXP_OPERATING+EXP_TRANSFER_OUT+DEPRECIATION)%>%
   group_by(LG_ID, NAME, AUDIT_YEAR)%>%
   summarize(cost=sum(cost))%>%
@@ -160,7 +248,7 @@ s5acost_sep=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,DEPRECIATION)%>%
   mutate(cost=EXP_OPERATING+EXP_TRANSFER_OUT+DEPRECIATION)%>%
   group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
@@ -187,6 +275,13 @@ s5a_data_ws=hu5%>%
   mutate(s5metric=cost/housingunits/mhi)
          # s5metric=ifelse(is.na(s5metric), 0,s5metric))
 
+s5a_data_ws_sum=hu5%>%
+  inner_join(mhi5, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s5acost_ws_sum, by="LG_ID")%>%
+  mutate(s5metric=cost/housingunits/mhi)
+# s5metric=ifelse(is.na(s5metric), 0,s5metric))
+
 s5a_data_sep=hu5%>%
   inner_join(mhi5, by="LG_ID")%>%
   filter(!is.na(LG_ID))%>%
@@ -195,12 +290,60 @@ s5a_data_sep=hu5%>%
          # s5metric=ifelse(is.na(s5metric), 0,s5metric))
 
 s5a_benchmark_ws=data.frame(s5a_benchmark_ws=median(s5a_data_ws$s5metric, na.rm = TRUE))
+s5a_benchmark_ws_sum=data.frame(s5a_benchmark_ws_sum=median(s5a_data_ws_sum$s5metric, na.rm = TRUE))
 s5a_benchmark_sep=s5a_data_sep%>%
-  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", "s"),
-    name=paste0("s5a_benchmark_", fundID))%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", 
+                       ifelse(CM_FUND_TYPE_ID==1, "joint", "s")),
+         name=paste0("s5a_benchmark_", fundID))%>%
   group_by(name)%>%
   summarize(s5a_benchmark_sep=median(s5metric, na.rm=TRUE))%>%
   spread(name, s5a_benchmark_sep)
+
+s5a_summary_sep= s5a_data_sep%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", 
+                       ifelse(CM_FUND_TYPE_ID==1, "joint", "s")))%>%
+  group_by(fundID)%>%
+  select(fundID, s5metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s5a_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+s5a_summary_ws= s5a_data_ws%>%
+  mutate(fundID="ws")%>%
+  group_by(fundID)%>%
+  select(fundID, s5metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s5a_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+s5a_summary_sum= s5a_data_ws_sum%>%
+  mutate(fundID="w+s")%>%
+  group_by(fundID)%>%
+  select(fundID, s5metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s5a_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+
+s5a_summary=bind_rows(s5a_summary_sep, s5a_summary_sum, s5a_summary_ws)
 
 
 #### S5b System Required Revenue/Tap/MHI (@110% Coverage) ####
@@ -209,8 +352,22 @@ s5brev_ws=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  inner_join(fti, by="LG_ID")%>%
+  inner_join(fti, by=c("LG_ID", "AUDIT_YEAR"))%>%
   filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014, ws_include==1)%>%
+  select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,EXP_PRINCIPAL, EXP_INTEREST)%>%
+  mutate(rev=(1.1*(EXP_PRINCIPAL+EXP_INTEREST))+(EXP_OPERATING+EXP_TRANSFER_OUT))%>%
+  group_by(LG_ID, NAME, AUDIT_YEAR)%>%
+  summarize(rev=sum(rev))%>%
+  ungroup()%>%
+  group_by(LG_ID, NAME)%>%
+  summarize(rev=mean(rev))
+
+s5brev_ws_sum=lgbasic%>%
+  select(-CREATED_BY:-OSA)%>%
+  inner_join(cm_audit, by="LG_ID")%>%
+  inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
+  inner_join(fti, by=c("LG_ID", "AUDIT_YEAR"))%>%
+  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,EXP_PRINCIPAL, EXP_INTEREST)%>%
   mutate(rev=(1.1*(EXP_PRINCIPAL+EXP_INTEREST))+(EXP_OPERATING+EXP_TRANSFER_OUT))%>%
   group_by(LG_ID, NAME, AUDIT_YEAR)%>%
@@ -223,7 +380,7 @@ s5brev_sep=lgbasic%>%
   select(-CREATED_BY:-OSA)%>%
   inner_join(cm_audit, by="LG_ID")%>%
   inner_join(select(cm_fund, -CREATED_ON:-UPDATED_BY), by="CM_AUDIT_ID")%>%
-  filter(CM_FUND_TYPE_ID%in%c(2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
+  filter(CM_FUND_TYPE_ID%in%c(1,2,3), LGTYPE_ID%in%c(2,3,4,5,61,70), AUDIT_YEAR>=2010, AUDIT_YEAR<=2014)%>%
   select(LG_ID, NAME, CM_FUND_TYPE_ID, AUDIT_YEAR, EXP_OPERATING,EXP_TRANSFER_OUT,EXP_PRINCIPAL, EXP_INTEREST)%>%
   mutate(rev=(1.1*(EXP_PRINCIPAL+EXP_INTEREST))+(EXP_OPERATING+EXP_TRANSFER_OUT))%>%
   group_by(LG_ID, NAME, CM_FUND_TYPE_ID)%>%
@@ -235,6 +392,11 @@ s5b_data_ws=hu5%>%
   inner_join(s5brev_ws, by="LG_ID")%>%
   mutate(s5metric=rev/housingunits/mhi)
          # s5metric=ifelse(is.na(s5metric), 0,s5metric))
+s5b_data_ws_sum=hu5%>%
+  inner_join(mhi5, by="LG_ID")%>%
+  filter(!is.na(LG_ID))%>%
+  inner_join(s5brev_ws, by="LG_ID")%>%
+  mutate(s5metric=rev/housingunits/mhi)
 
 s5b_data_sep=hu5%>%
   inner_join(mhi5, by="LG_ID")%>%
@@ -244,25 +406,79 @@ s5b_data_sep=hu5%>%
          # s5metric=ifelse(is.na(s5metric), 0,s5metric))
 
 s5b_benchmark_ws=data.frame(s5b_benchmark_ws=median(s5b_data_ws$s5metric, na.rm = TRUE))
+s5b_benchmark_ws_sum=data.frame(s5b_benchmark_ws_sum=median(s5b_data_ws_sum$s5metric, na.rm = TRUE))
 s5b_benchmark_sep=s5b_data_sep%>%
-  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", "s"),
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", 
+                       ifelse(CM_FUND_TYPE_ID==1, "joint", "s")),
          name=paste0("s5b_benchmark_", fundID))%>%
   group_by(name)%>%
   summarize(s5b_benchmark_sep=median(s5metric, na.rm=TRUE))%>%
   spread(name, s5b_benchmark_sep)
 
+s5b_summary_sep= s5b_data_sep%>%
+  mutate(fundID=ifelse(CM_FUND_TYPE_ID==2, "w", 
+                       ifelse(CM_FUND_TYPE_ID==1, "joint", "s")))%>%
+  group_by(fundID)%>%
+  select(fundID, s5metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s5b_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+s5b_summary_ws= s5b_data_ws%>%
+  mutate(fundID="ws")%>%
+  group_by(fundID)%>%
+  select(fundID, s5metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s5b_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+s5b_summary_sum= s5b_data_ws_sum%>%
+  mutate(fundID="w+s")%>%
+  group_by(fundID)%>%
+  select(fundID, s5metric)%>%
+  summarise_each(funs(count=n(),
+                      min=min(., na.rm=TRUE),
+                      '1st Q'=quantile(., probs=0.25, na.rm=TRUE),
+                      median=median(., na.rm=TRUE),
+                      '3rd Q'=quantile(., probs=0.75, na.rm=TRUE),
+                      max=max(., na.rm=TRUE)))%>%
+  mutate(measure=paste0("s5b_", fundID))%>%
+  ungroup()%>%
+  select(measure, benchmark=median, count, min:max)
+
+
+s5b_summary=bind_rows(s5b_summary_sep, s5b_summary_sum, s5b_summary_ws)
+
 
 ##### Output #####
+# 
+# benchmarks=bind_cols(s3_benchmark, s4_benchmark_ws, s4_benchmark_ws_sum, s4_benchmark_sep, s5a_benchmark_ws, s5a_benchmark_ws_sum, s5a_benchmark_sep, s5b_benchmark_ws, s5b_benchmark_ws_sum,s5b_benchmark_sep)
+# 
+# write.csv(benchmarks, "benchmarks_2017.csv", row.names = FALSE)
 
-benchmarks=bind_cols(s3_benchmark, s4_benchmark_ws, s4_benchmark_sep, s5a_benchmark_ws, s5a_benchmark_sep, s5b_benchmark_ws, s5b_benchmark_sep)
-
-write.csv(benchmarks, "benchmarks_2017.csv", row.names = FALSE)
+summary=bind_rows(s3_summary, s4_summary, s5a_summary, s5b_summary)
+write.csv(summary, "summary_2017.csv", row.names = FALSE)
 
 write.csv(s3_data, "s3_data.csv", row.names = FALSE)
 write.csv(s4_data_ws, "s4_data_ws.csv", row.names = FALSE)
 write.csv(s4_data_sep, "s4_data_sep.csv", row.names = FALSE)
+write.csv(s4_data_ws_sum, "s4_data_ws_sum.csv", row.names = FALSE)
 write.csv(s5a_data_ws, "s5a_data_ws.csv", row.names = FALSE)
 write.csv(s5a_data_sep, "s5a_data_sep.csv", row.names = FALSE)
+write.csv(s5a_data_ws_sum, "s5a_data_ws_sum.csv", row.names = FALSE)
 write.csv(s5b_data_ws, "s5b_data_ws.csv", row.names = FALSE)
 write.csv(s5b_data_sep, "s5b_data_sep.csv", row.names = FALSE)
+write.csv(s5b_data_ws_sum, "s5b_data_ws_sum.csv", row.names = FALSE)
 
