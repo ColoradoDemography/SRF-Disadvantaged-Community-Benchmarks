@@ -15,7 +15,3 @@ psql --host=104.197.26.248 --port=5433 --username=codemog --password=demography 
 psql --host=104.197.26.248 --port=5433 --username=codemog --password=demography --dbname=acs1115 -c "COPY (SELECT carto.place.geoname, carto.place.geonum, data.b25077.b25077001, data.b25077_moe.b25077_moe001, data.b19013.b19013001, data.b19013_moe.b19013_moe001 FROM carto.place NATURAL JOIN data.b25077 NATURAL JOIN data.b19013 NATURAL JOIN data.b25077_moe NATURAL JOIN data.b19013_moe WHERE state=8) TO STDOUT WITH CSV HEADER" > "J:\Special Projects\SRF Disadvantaged Community Benchmarks\srf_acs_place.csv"
 psql --host=104.197.26.248 --port=5433 --username=codemog --password=demography --dbname=acs1115 -c "COPY (SELECT carto.county.geoname, carto.county.geonum, data.b25077.b25077001, data.b25077_moe.b25077_moe001, data.b19013.b19013001, data.b19013_moe.b19013_moe001 FROM carto.county NATURAL JOIN data.b25077 NATURAL JOIN data.b19013 NATURAL JOIN data.b25077_moe NATURAL JOIN data.b19013_moe WHERE state=8) TO STDOUT WITH CSV HEADER" > "J:\Special Projects\SRF Disadvantaged Community Benchmarks\srf_acs_county.csv"
 
-
-
-
-
